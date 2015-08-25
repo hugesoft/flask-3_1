@@ -13,6 +13,9 @@ from wtforms.validators import Required
 from flask.ext.script import Manager
 from flask.ext.moment import Moment
 from flask.ext.sqlalchemy import SQLAlchemy
+from flask.ext.mail import Mail
+from flask.ext.mail import Message
+from threading import Thread
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -25,10 +28,35 @@ db = SQLAlchemy(app)
 
 app.config['SECRET_KEY'] = 'hard to guess string'
 
+#邮件设置
+app.config['MaIL_SERVER'] = 'smtp.126.com'
+app.config['MAIL_PORT'] = 25
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'hugesoft@126.com'
+app.config['MAIL_PASSWORD'] = 'enter0087!'
+app.config['FLASKY_MAIL_SUBJECT_PREFIX'] = '[Flasky]'
+app.config['FLASKY_MAIL_SENDER'] = 'Flasky Admin <hugesoft@126.com>'
+app.config['FLASKY_ADMIN'] = 'hugesoft@126.com'
+
 app.debug = True
 manager = Manager(app)
 bootstrap = Bootstrap(app)
 moment = Moment(app)
+mail = Mail(app)
+
+def send_async_email(app,msg):
+    with app.app_context():
+        mail.send(msg)
+
+#邮件发送函数
+def send_email(to, subject, template, **kwargs):
+    msg = Message(app.config['FLASKY_MAIL_SUBJECT_PREFIX'] + subject,
+        sender=app.config['FLASKY_MAIL_SENDER'], recipients=[to])
+    msg.body = render_template(template + '.txt', **kwargs)
+    msg.html = render_template(template + '.html', **kwargs)
+    thr = Thread(target=send_async_email,args=[app,msg])
+    thr.start()
+    return thr
 
 class NameForm(Form):
     name = StringField(u'请输入你的姓名', validators=[Required()])
@@ -57,9 +85,14 @@ def index():
     name = None
     form = NameForm()
     if form.validate_on_submit():
+        user = User.query.filter_by(username=form.name.data).first()
         old_name = session.get('name')
         if old_name is not None and old_name != form.name.data:
             flash('与上次输入的不同！')
+        if app.config['FLASKY_ADMIN']:
+            send_email(app.config['FLASKY_ADMIN'],'New User',
+                'mail/new_user', user=user)
+
         session['name'] = form.name.data
         return redirect(url_for('index'))
     return render_template('index.html', form=form, name=session.get('name'))
